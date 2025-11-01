@@ -1,0 +1,21 @@
+package gva
+
+import (
+	"context"
+
+	"github.com/flipped-aurora/gin-vue-admin/server/plugin/gva/initialize"
+	interfaces "github.com/flipped-aurora/gin-vue-admin/server/utils/plugin/v2"
+	"github.com/gin-gonic/gin"
+)
+
+var _ interfaces.Plugin = (*plugin)(nil)
+
+var Plugin = new(plugin)
+
+type plugin struct{}
+
+func (p *plugin) Register(engine *gin.Engine) {
+	ctx := context.Background()
+	initialize.Gorm(ctx)
+	initialize.Router(engine)
+}
