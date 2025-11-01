@@ -1,543 +1,884 @@
-
 <template>
-  <div>
+  <div class="nail-style-page">
     <div class="gva-search-box">
-      <el-form ref="elSearchFormRef" :inline="true" :model="searchInfo" class="demo-form-inline" @keyup.enter="onSubmit">
-      <el-form-item label="创建日期" prop="createdAtRange">
-      <template #label>
-        <span>
-          创建日期
-          <el-tooltip content="搜索范围是开始日期（包含）至结束日期（不包含）">
-            <el-icon><QuestionFilled /></el-icon>
-          </el-tooltip>
-        </span>
-      </template>
-
-      <el-date-picker
-            v-model="searchInfo.createdAtRange"
-            class="!w-380px"
+      <el-form
+        ref="searchFormRef"
+        :inline="true"
+        :model="filters"
+        class="search-form"
+        @keyup.enter="handleSearch"
+      >
+        <el-form-item label="创建日期">
+          <el-date-picker
+            v-model="filters.createdAtRange"
             type="datetimerange"
             range-separator="至"
             start-placeholder="开始时间"
             end-placeholder="结束时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            class="w-320"
+            clearable
           />
-       </el-form-item>
-      
-            <el-form-item label="款式名称" prop="styleName">
-  <el-input v-model="searchInfo.styleName" placeholder="搜索条件" />
-</el-form-item>
-            
-            <el-form-item label="是否推荐" prop="isRecommended">
-  <el-select v-model="searchInfo.isRecommended" clearable placeholder="请选择">
-    <el-option key="true" label="是" value="true"></el-option>
-    <el-option key="false" label="否" value="false"></el-option>
-  </el-select>
-</el-form-item>
-            
-            <el-form-item label="状态" prop="status">
-    <el-tree-select v-model="formData.status" placeholder="请选择状态" :data="nail_style_statusOptions" style="width:100%" filterable :clearable="true" check-strictly ></el-tree-select>
-</el-form-item>
-            
-
-        <template v-if="showAllQuery">
-          <!-- 将需要控制显示状态的查询条件添加到此范围内 -->
-        </template>
-
+        </el-form-item>
+        <el-form-item label="款式名称">
+          <el-input
+            v-model="filters.styleName"
+            placeholder="输入关键字搜索"
+            clearable
+          />
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-select
+            v-model="filters.tagIds"
+            multiple
+            filterable
+            clearable
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择标签"
+            class="w-240"
+          >
+            <el-option
+              v-for="tag in tagOptions"
+              :key="tag.value"
+              :label="tag.label"
+              :value="tag.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="filters.tagIds.length" label="匹配方式">
+          <el-switch
+            v-model="filters.matchAll"
+            active-text="全部匹配"
+            inactive-text="任意匹配"
+            inline-prompt
+          />
+        </el-form-item>
+        <el-form-item label="是否推荐">
+          <el-select v-model="filters.isRecommended" clearable placeholder="全部">
+            <el-option label="是" :value="true" />
+            <el-option label="否" :value="false" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select
+            v-model="filters.status"
+            clearable
+            filterable
+            placeholder="全部"
+            class="w-160"
+          >
+            <el-option
+              v-for="item in statusOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item>
-          <el-button type="primary" icon="search" @click="onSubmit">查询</el-button>
-          <el-button icon="refresh" @click="onReset">重置</el-button>
-          <el-button link type="primary" icon="arrow-down" @click="showAllQuery=true" v-if="!showAllQuery">展开</el-button>
-          <el-button link type="primary" icon="arrow-up" @click="showAllQuery=false" v-else>收起</el-button>
+          <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
+          <el-button :icon="RefreshRight" @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
     </div>
+
     <div class="gva-table-box">
-        <div class="gva-btn-list">
-            <el-button  type="primary" icon="plus" @click="openDialog()">新增</el-button>
-            <el-button  icon="delete" style="margin-left: 10px;" :disabled="!multipleSelection.length" @click="onDelete">删除</el-button>
-            <ExportTemplate  template-id="nail_NailStyle" />
-            <ExportExcel  template-id="nail_NailStyle" filterDeleted/>
-            <ImportExcel  template-id="nail_NailStyle" @on-success="getTableData" />
-        </div>
-        <el-table
-        ref="multipleTable"
-        style="width: 100%"
-        tooltip-effect="dark"
+      <div class="gva-btn-list">
+        <el-button type="primary" :icon="Plus" @click="openCreate">新增</el-button>
+        <el-button
+          type="success"
+          :icon="Tickets"
+          :disabled="!selectedIds.length"
+          @click="openTagDialog"
+        >
+          批量调整标签
+        </el-button>
+        <el-button
+          type="danger"
+          plain
+          :icon="Delete"
+          :disabled="!selectedIds.length"
+          @click="handleBatchDelete"
+        >
+          删除
+        </el-button>
+        <ExportTemplate template-id="nail_NailStyle" />
+        <ExportExcel template-id="nail_NailStyle" filterDeleted />
+        <ImportExcel template-id="nail_NailStyle" @on-success="fetchTableData" />
+      </div>
+
+      <el-table
+        v-loading="tableLoading"
         :data="tableData"
         row-key="ID"
+        style="width: 100%"
+        tooltip-effect="dark"
         @selection-change="handleSelectionChange"
-        @sort-change="sortChange"
-        >
+        @sort-change="handleSortChange"
+      >
         <el-table-column type="selection" width="55" />
-        
-        <el-table-column sortable align="left" label="日期" prop="CreatedAt" width="180">
-            <template #default="scope">{{ formatDate(scope.row.CreatedAt) }}</template>
+        <el-table-column
+          label="创建时间"
+          prop="CreatedAt"
+          sortable="custom"
+          width="180"
+        >
+          <template #default="{ row }">
+            {{ formatDate(row.CreatedAt) }}
+          </template>
         </el-table-column>
-        
-            <el-table-column align="left" label="款式名称" prop="styleName" width="120" />
-
-            <el-table-column label="美甲图片集" prop="images" width="200">
-   <template #default="scope">
-      <div class="multiple-img-box">
-         <el-image preview-teleported v-for="(item,index) in scope.row.images" :key="index" style="width: 80px; height: 80px" :src="getUrl(item)" fit="cover"/>
-     </div>
-   </template>
-</el-table-column>
-            <el-table-column align="left" label="是否推荐" prop="isRecommended" width="120">
-    <template #default="scope">{{ formatBoolean(scope.row.isRecommended) }}</template>
-</el-table-column>
-            <el-table-column sortable align="left" label="浏览次数" prop="viewCount" width="120" />
-
-            <el-table-column sortable align="left" label="点赞数" prop="likeCount" width="120" />
-
-            <el-table-column sortable align="left" label="排序号" prop="sort" width="120" />
-
-            <el-table-column align="left" label="状态" prop="status" width="120">
-    <template #default="scope">
-    {{ filterDict(scope.row.status,nail_style_statusOptions) }}
-    </template>
-</el-table-column>
-        <el-table-column align="left" label="操作" fixed="right" :min-width="appStore.operateMinWith">
-            <template #default="scope">
-            <el-button  type="primary" link class="table-button" @click="getDetails(scope.row)"><el-icon style="margin-right: 5px"><InfoFilled /></el-icon>查看</el-button>
-            <el-button  type="primary" link icon="edit" class="table-button" @click="updateNailStyleFunc(scope.row)">编辑</el-button>
-            <el-button   type="primary" link icon="delete" @click="deleteRow(scope.row)">删除</el-button>
-            </template>
-        </el-table-column>
-        </el-table>
-        <div class="gva-pagination">
-            <el-pagination
-            layout="total, sizes, prev, pager, next, jumper"
-            :current-page="page"
-            :page-size="pageSize"
-            :page-sizes="[10, 30, 50, 100]"
-            :total="total"
-            @current-change="handleCurrentChange"
-            @size-change="handleSizeChange"
+        <el-table-column
+          label="款式名称"
+          prop="styleName"
+          min-width="140"
+          show-overflow-tooltip
+        />
+        <el-table-column label="封面" width="120">
+          <template #default="{ row }">
+            <el-image
+              v-if="row.images.length"
+              :src="resolveImage(row.images[0])"
+              :preview-src-list="resolvePreviewList(row.images)"
+              fit="cover"
+              class="thumb"
             />
-        </div>
-    </div>
-    <el-drawer destroy-on-close :size="appStore.drawerSize" v-model="dialogFormVisible" :show-close="false" :before-close="closeDialog">
-       <template #header>
-              <div class="flex justify-between items-center">
-                <span class="text-lg">{{type==='create'?'新增':'编辑'}}</span>
-                <div>
-                  <el-button :loading="btnLoading" type="primary" @click="enterDialog">确 定</el-button>
-                  <el-button @click="closeDialog">取 消</el-button>
-                </div>
-              </div>
-            </template>
+            <span v-else class="image-placeholder">无</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="标签"
+          min-width="200"
+          show-overflow-tooltip
+        >
+          <template #default="{ row }">
+            <el-space wrap size="small">
+              <el-tag v-for="tagId in row.tagIds" :key="tagId" type="info">
+                {{ resolveTagName(tagId) }}
+              </el-tag>
+            </el-space>
+            <span v-if="!row.tagIds.length" class="text-disabled">未打标签</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-if="filters.tagIds.length"
+          label="命中标签"
+          prop="tagMatchCount"
+          width="100"
+          sortable="custom"
+        />
+        <el-table-column
+          label="是否推荐"
+          prop="isRecommended"
+          width="110"
+        >
+          <template #default="{ row }">
+            <el-tag :type="row.isRecommended ? 'success' : 'info'">
+              {{ formatBoolean(row.isRecommended) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="浏览次数"
+          prop="viewCount"
+          sortable="custom"
+          width="100"
+        />
+        <el-table-column
+          label="点赞数"
+          prop="likeCount"
+          sortable="custom"
+          width="100"
+        />
+        <el-table-column
+          label="排序值"
+          prop="sort"
+          sortable="custom"
+          width="90"
+        />
+        <el-table-column label="状态" prop="status" width="120">
+          <template #default="{ row }">
+            <el-tag>{{ filterDict(row.status, statusOptions) || '-' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="操作"
+          fixed="right"
+          :min-width="appStore.operateMinWith"
+        >
+          <template #default="{ row }">
+            <el-button
+              type="primary"
+              link
+              :icon="View"
+              @click="openDetail(row)"
+            >
+              查看
+            </el-button>
+            <el-button
+              type="primary"
+              link
+              :icon="EditPen"
+              @click="openEdit(row)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              type="danger"
+              link
+              :icon="Delete"
+              @click="handleDelete(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
 
-          <el-form :model="formData" label-position="top" ref="elFormRef" :rules="rule" label-width="80px">
-            <el-form-item label="款式名称:" prop="styleName">
-    <el-input v-model="formData.styleName" :clearable="true" placeholder="请输入款式名称" />
-</el-form-item>
-            <el-form-item label="美甲图片集:" prop="images">
-    <SelectImage
-     multiple
-     v-model="formData.images"
-     file-type="image"
-     />
-</el-form-item>
-            <el-form-item label="款式介绍:" prop="description">
-    <RichEdit v-model="formData.description"/>
-</el-form-item>
-            <el-form-item label="是否推荐:" prop="isRecommended">
-    <el-switch v-model="formData.isRecommended" active-color="#13ce66" inactive-color="#ff4949" active-text="是" inactive-text="否" clearable ></el-switch>
-</el-form-item>
-            <el-form-item label="排序号:" prop="sort">
-    <el-input v-model.number="formData.sort" :clearable="true" placeholder="请输入排序号" />
-</el-form-item>
-            <el-form-item label="状态:" prop="status">
-    <el-tree-select v-model="formData.status" placeholder="请选择状态" :data="nail_style_statusOptions" style="width:100%" filterable :clearable="true" check-strictly></el-tree-select>
-</el-form-item>
-            <el-form-item label="关联的标签ID列表:" prop="tagIds">
-    <el-select multiple v-model="formData.tagIds" placeholder="请选择关联的标签ID列表" filterable style="width:100%" :clearable="true">
-        <el-option v-for="(item,key) in dataSource.tagIds" :key="key" :label="item.label" :value="item.value" />
-    </el-select>
-</el-form-item>
-          </el-form>
+      <div class="gva-pagination">
+        <el-pagination
+          layout="total, sizes, prev, pager, next, jumper"
+          :current-page="pagination.page"
+          :page-size="pagination.pageSize"
+          :page-sizes="[10, 30, 50, 100]"
+          :total="pagination.total"
+          @current-change="handlePageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
+    </div>
+
+    <el-dialog
+      v-model="tagDialog.visible"
+      width="460px"
+      :close-on-click-modal="false"
+      title="批量调整标签"
+    >
+      <el-form :model="tagDialog.form" label-width="96px">
+        <el-form-item label="新增标签">
+          <el-select
+            v-model="tagDialog.form.addTagIds"
+            multiple
+            filterable
+            placeholder="选择要添加的标签"
+            clearable
+          >
+            <el-option
+              v-for="tag in tagOptions"
+              :key="`add-${tag.value}`"
+              :label="tag.label"
+              :value="tag.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="移除标签">
+          <el-select
+            v-model="tagDialog.form.removeTagIds"
+            multiple
+            filterable
+            placeholder="选择要移除的标签"
+            clearable
+          >
+            <el-option
+              v-for="tag in tagOptions"
+              :key="`remove-${tag.value}`"
+              :label="tag.label"
+              :value="tag.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="操作备注">
+          <el-input
+            v-model="tagDialog.form.operatorNote"
+            type="textarea"
+            maxlength="200"
+            show-word-limit
+            placeholder="可选，填写此次批量调整的说明"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="tagDialog.visible = false">取 消</el-button>
+        <el-button type="primary" :loading="tagDialog.loading" @click="submitTagAdjust">
+          确 定
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-drawer
+      v-model="formDrawer.visible"
+      :size="appStore.drawerSize"
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
+      <template #header>
+        <div class="drawer-header">
+          <span>{{ formDrawer.mode === 'create' ? '新增款式' : '编辑款式' }}</span>
+          <div>
+            <el-button @click="formDrawer.visible = false">取 消</el-button>
+            <el-button type="primary" :loading="formDrawer.loading" @click="submitForm">
+              保 存
+            </el-button>
+          </div>
+        </div>
+      </template>
+      <el-form
+        ref="formRef"
+        :model="formData"
+        :rules="formRules"
+        label-position="top"
+      >
+        <el-form-item label="款式名称" prop="styleName">
+          <el-input v-model="formData.styleName" placeholder="请输入款式名称" />
+        </el-form-item>
+        <el-form-item label="展示图片" prop="images">
+          <SelectImage v-model="formData.images" multiple file-type="image" />
+        </el-form-item>
+        <el-form-item label="款式介绍" prop="description">
+          <RichEdit v-model="formData.description" />
+        </el-form-item>
+        <el-form-item label="是否推荐" prop="isRecommended">
+          <el-switch
+            v-model="formData.isRecommended"
+            active-text="是"
+            inactive-text="否"
+          />
+        </el-form-item>
+        <el-form-item label="排序值" prop="sort">
+          <el-input-number v-model="formData.sort" :min="0" :max="9999" />
+        </el-form-item>
+        <el-form-item label="状态" prop="status">
+          <el-select v-model="formData.status" placeholder="请选择状态">
+            <el-option
+              v-for="item in statusOptions"
+              :key="`status-${item.value}`"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="关联标签" prop="tagIds">
+          <el-select
+            v-model="formData.tagIds"
+            multiple
+            filterable
+            clearable
+            placeholder="选择关联标签"
+          >
+            <el-option
+              v-for="tag in tagOptions"
+              :key="`form-tag-${tag.value}`"
+              :label="tag.label"
+              :value="tag.value"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
     </el-drawer>
 
-    <el-drawer destroy-on-close :size="appStore.drawerSize" v-model="detailShow" :show-close="true" :before-close="closeDetailShow" title="查看">
-            <el-descriptions :column="1" border>
-                    <el-descriptions-item label="款式名称">
-    {{ detailForm.styleName }}
-</el-descriptions-item>
-                    <el-descriptions-item label="美甲图片集">
-    <el-image style="width: 50px; height: 50px; margin-right: 10px" :preview-src-list="returnArrImg(detailForm.images)" :initial-index="index" v-for="(item,index) in detailForm.images" :key="index" :src="getUrl(item)" fit="cover" />
-</el-descriptions-item>
-                    <el-descriptions-item label="款式介绍">
-    <RichView v-model="detailForm.description" />
-</el-descriptions-item>
-                    <el-descriptions-item label="是否推荐">
-    {{ detailForm.isRecommended }}
-</el-descriptions-item>
-                    <el-descriptions-item label="浏览次数">
-    {{ detailForm.viewCount }}
-</el-descriptions-item>
-                    <el-descriptions-item label="点赞数">
-    {{ detailForm.likeCount }}
-</el-descriptions-item>
-                    <el-descriptions-item label="状态">
-    {{ detailForm.status }}
-</el-descriptions-item>
-                    <el-descriptions-item label="关联的标签ID列表">
-    <template #default="scope">
-        <el-tag v-for="(item,key) in filterDataSource(dataSource.tagIds,detailForm.tagIds)" :key="key">
-             {{ item }}
-        </el-tag>
-    </template>
-</el-descriptions-item>
-            </el-descriptions>
-        </el-drawer>
+    <el-drawer
+      v-model="detailDrawer.visible"
+      title="款式详情"
+      :size="appStore.drawerSize"
+      destroy-on-close
+    >
+      <div v-if="detailDrawer.data" class="detail-wrapper">
+        <section class="detail-section">
+          <h3>基础信息</h3>
+          <div class="detail-row">
+            <span class="label">款式名称</span>
+            <span>{{ detailDrawer.data.styleName || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">是否推荐</span>
+            <span>{{ formatBoolean(detailDrawer.data.isRecommended) }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">状态</span>
+            <span>{{ filterDict(detailDrawer.data.status, statusOptions) || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">排序值</span>
+            <span>{{ detailDrawer.data.sort ?? '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">浏览 / 点赞</span>
+            <span>{{ detailDrawer.data.viewCount ?? 0 }} / {{ detailDrawer.data.likeCount ?? 0 }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">关联标签</span>
+            <el-space wrap size="small">
+              <el-tag v-for="tagId in detailDrawer.data.tagIds" :key="`detail-${tagId}`">
+                {{ resolveTagName(tagId) }}
+              </el-tag>
+            </el-space>
+            <span v-if="!detailDrawer.data.tagIds.length">未打标签</span>
+          </div>
+        </section>
 
+        <section class="detail-section">
+          <h3>展示图片</h3>
+          <el-space wrap>
+            <el-image
+              v-for="(img, index) in detailDrawer.data.images"
+              :key="`detail-img-${index}`"
+              :src="resolveImage(img)"
+              :preview-src-list="resolvePreviewList(detailDrawer.data.images)"
+              fit="cover"
+              class="detail-image"
+            />
+            <span v-if="!detailDrawer.data.images.length">暂无图片</span>
+          </el-space>
+        </section>
+
+        <section class="detail-section">
+          <h3>款式介绍</h3>
+          <div class="detail-rich" v-html="detailDrawer.data.description || '暂无介绍'" />
+        </section>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useAppStore } from '@/pinia/modules/app'
 import {
-    getNailStyleDataSource,
   createNailStyle,
   deleteNailStyle,
   deleteNailStyleByIds,
-  updateNailStyle,
   findNailStyle,
-  getNailStyleList
+  getNailStyleList,
+  updateNailStyle,
+  getNailStyleDataSource,
+  batchUpdateNailStyleTags
 } from '@/api/nail/nail_style'
-import { getUrl } from '@/utils/image'
-// 图片选择组件
-import SelectImage from '@/components/selectImage/selectImage.vue'
-// 富文本组件
-import RichEdit from '@/components/richtext/rich-edit.vue'
-import RichView from '@/components/richtext/rich-view.vue'
-// 数组控制组件
-import ArrayCtrl from '@/components/arrayCtrl/arrayCtrl.vue'
-
-// 全量引入格式化工具 请按需保留
-import { getDictFunc, formatDate, formatBoolean, filterDict ,filterDataSource, returnArrImg, onDownloadFile } from '@/utils/format'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { ref, reactive } from 'vue'
-import { useAppStore } from "@/pinia"
-
-// 导出组件
-import ExportExcel from '@/components/exportExcel/exportExcel.vue'
-// 导入组件
-import ImportExcel from '@/components/exportExcel/importExcel.vue'
-// 导出模板组件
 import ExportTemplate from '@/components/exportExcel/exportTemplate.vue'
+import ExportExcel from '@/components/exportExcel/exportExcel.vue'
+import ImportExcel from '@/components/exportExcel/importExcel.vue'
+import SelectImage from '@/components/selectImage/selectImage.vue'
+import RichEdit from '@/components/richtext/rich-edit.vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Delete, EditPen, View, Tickets, RefreshRight, Search } from '@element-plus/icons-vue'
+import { filterDict, formatBoolean, formatDate, getDictFunc, returnArrImg } from '@/utils/format'
 
-
-defineOptions({
-    name: 'NailStyle'
-})
-
-// 提交按钮loading
-const btnLoading = ref(false)
 const appStore = useAppStore()
 
-// 控制更多查询条件显示/隐藏状态
-const showAllQuery = ref(false)
+const searchFormRef = ref()
+const formRef = ref()
 
-// 自动化生成的字典（可能为空）以及字段
-const nail_style_statusOptions = ref([])
-const formData = ref({
-            styleName: '',
-            images: [],
-            description: '',
-            isRecommended: false,
-            sort: 0,
-            status: '',
-            tagIds: [],
-        })
-  const dataSource = ref([])
-  const getDataSourceFunc = async()=>{
-    const res = await getNailStyleDataSource()
-    if (res.code === 0) {
-      dataSource.value = res.data
-    }
-  }
-  getDataSourceFunc()
-
-
-
-// 验证规则
-const rule = reactive({
-               styleName : [{
-                   required: true,
-                   message: '请输入款式名称',
-                   trigger: ['input','blur'],
-               },
-               {
-                   whitespace: true,
-                   message: '不能只输入空格',
-                   trigger: ['input', 'blur'],
-              }
-              ],
-               images : [{
-                   required: true,
-                   message: '请上传美甲图片',
-                   trigger: ['input','blur'],
-               },
-              ],
-               status : [{
-                   required: true,
-                   message: '请选择状态',
-                   trigger: ['input','blur'],
-               },
-               {
-                   whitespace: true,
-                   message: '不能只输入空格',
-                   trigger: ['input', 'blur'],
-              }
-              ],
+const filters = reactive({
+  createdAtRange: [],
+  styleName: '',
+  tagIds: [],
+  matchAll: false,
+  isRecommended: null,
+  status: ''
 })
 
-const elFormRef = ref()
-const elSearchFormRef = ref()
+const pagination = reactive({
+  page: 1,
+  pageSize: 10,
+  total: 0
+})
 
-// =========== 表格控制部分 ===========
-const page = ref(1)
-const total = ref(0)
-const pageSize = ref(10)
+const sortState = reactive({
+  prop: '',
+  order: ''
+})
+
 const tableData = ref([])
-const searchInfo = ref({})
-// 排序
-const sortChange = ({ prop, order }) => {
-  const sortMap = {
-    CreatedAt:"created_at",
-    ID:"id",
-            viewCount: 'view_count',
-            likeCount: 'like_count',
-            sort: 'sort',
+const tableLoading = ref(false)
+const selectedRows = ref([])
+
+const tagOptions = ref([])
+const statusOptions = ref([])
+
+const tagDialog = reactive({
+  visible: false,
+  loading: false,
+  form: {
+    addTagIds: [],
+    removeTagIds: [],
+    operatorNote: ''
   }
+})
 
-  let sort = sortMap[prop]
-  if(!sort){
-   sort = prop.replace(/[A-Z]/g, match => `_${match.toLowerCase()}`)
-  }
+const formDrawer = reactive({
+  visible: false,
+  mode: 'create',
+  loading: false
+})
 
-  searchInfo.value.sort = sort
-  searchInfo.value.order = order
-  getTableData()
+const detailDrawer = reactive({
+  visible: false,
+  data: null
+})
+
+const formData = reactive({
+  ID: undefined,
+  styleName: '',
+  images: [],
+  description: '',
+  isRecommended: false,
+  sort: 0,
+  status: '',
+  tagIds: []
+})
+
+const formRules = {
+  styleName: [{ required: true, message: '请输入款式名称', trigger: 'blur' }],
+  images: [{ required: true, message: '请上传展示图片', trigger: 'change' }],
+  status: [{ required: true, message: '请选择状态', trigger: 'change' }]
 }
-// 重置
-const onReset = () => {
-  searchInfo.value = {}
-  getTableData()
+
+const selectedIds = computed(() => selectedRows.value.map((item) => item.ID))
+
+const tagMap = computed(() => {
+  const map = new Map()
+  tagOptions.value.forEach((item) => {
+    map.set(item.value, item.label)
+  })
+  return map
+})
+
+const resolveTagName = (id) => tagMap.value.get(id) || `#${id}`
+
+const resolveImage = (image) => {
+  const list = returnArrImg(image)
+  return list.length ? list[0] : ''
 }
 
-// 搜索
-const onSubmit = () => {
-  elSearchFormRef.value?.validate(async(valid) => {
-    if (!valid) return
-    page.value = 1
-    if (searchInfo.value.isRecommended === ""){
-        searchInfo.value.isRecommended=null
+const resolvePreviewList = (images) => {
+  if (!images?.length) return []
+  return images.map((img) => resolveImage(img))
+}
+
+const transformRecord = (item) => {
+  const normalizeJSON = (value) => {
+    if (!value) return []
+    if (Array.isArray(value)) return value
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value)
+        return Array.isArray(parsed) ? parsed : []
+      } catch (error) {
+        return []
+      }
     }
-    getTableData()
+    return []
+  }
+
+  return {
+    ...item,
+    images: normalizeJSON(item.images),
+    tagIds: normalizeJSON(item.tagIds)
+  }
+}
+
+const buildQueryParams = () => {
+  const params = {
+    page: pagination.page,
+    pageSize: pagination.pageSize
+  }
+
+  if (filters.createdAtRange?.length === 2) {
+    params.createdAtRange = filters.createdAtRange
+  }
+  if (filters.styleName) {
+    params.styleName = filters.styleName
+  }
+  if (filters.tagIds.length) {
+    params.tagIds = filters.tagIds
+    params.matchAll = filters.matchAll
+  }
+  if (filters.isRecommended !== null && filters.isRecommended !== undefined) {
+    params.isRecommended = filters.isRecommended
+  }
+  if (filters.status) {
+    params.status = filters.status
+  }
+  if (sortState.prop) {
+    params.sort = sortState.prop
+    params.order = sortState.order
+  }
+  return params
+}
+
+const fetchTableData = async () => {
+  tableLoading.value = true
+  try {
+    const res = await getNailStyleList(buildQueryParams())
+    if (res.code === 0) {
+      const { list = [], total = 0 } = res.data || {}
+      tableData.value = list.map(transformRecord)
+      pagination.total = total
+    }
+  } finally {
+    tableLoading.value = false
+  }
+}
+
+const handleSearch = () => {
+  pagination.page = 1
+  fetchTableData()
+}
+
+const handleReset = () => {
+  filters.createdAtRange = []
+  filters.styleName = ''
+  filters.tagIds = []
+  filters.matchAll = false
+  filters.isRecommended = null
+  filters.status = ''
+  sortState.prop = ''
+  sortState.order = ''
+  pagination.page = 1
+  fetchTableData()
+}
+
+const handleSelectionChange = (rows) => {
+  selectedRows.value = rows
+}
+
+const handleSortChange = ({ prop, order }) => {
+  sortState.prop = order ? prop : ''
+  sortState.order = order
+  fetchTableData()
+}
+
+const handlePageChange = (page) => {
+  pagination.page = page
+  fetchTableData()
+}
+
+const handlePageSizeChange = (size) => {
+  pagination.pageSize = size
+  pagination.page = 1
+  fetchTableData()
+}
+
+const openCreate = () => {
+  formDrawer.mode = 'create'
+  Object.assign(formData, {
+    ID: undefined,
+    styleName: '',
+    images: [],
+    description: '',
+    isRecommended: false,
+    sort: 0,
+    status: '',
+    tagIds: []
+  })
+  formDrawer.visible = true
+}
+
+const openEdit = async (row) => {
+  formDrawer.mode = 'update'
+  const res = await findNailStyle({ ID: row.ID })
+  if (res.code === 0) {
+    const data = transformRecord(res.data)
+    Object.assign(formData, data)
+    formDrawer.visible = true
+  }
+}
+
+const submitForm = () => {
+  formRef.value?.validate(async (valid) => {
+    if (!valid) return
+    formDrawer.loading = true
+    try {
+      const payload = { ...formData }
+      let res
+      if (formDrawer.mode === 'create') {
+        res = await createNailStyle(payload)
+      } else {
+        res = await updateNailStyle(payload)
+      }
+      if (res.code === 0) {
+        ElMessage.success('保存成功')
+        formDrawer.visible = false
+        fetchTableData()
+      }
+    } finally {
+      formDrawer.loading = false
+    }
   })
 }
 
-// 分页
-const handleSizeChange = (val) => {
-  pageSize.value = val
-  getTableData()
-}
-
-// 修改页面容量
-const handleCurrentChange = (val) => {
-  page.value = val
-  getTableData()
-}
-
-// 查询
-const getTableData = async() => {
-  const table = await getNailStyleList({ page: page.value, pageSize: pageSize.value, ...searchInfo.value })
-  if (table.code === 0) {
-    tableData.value = table.data.list
-    total.value = table.data.total
-    page.value = table.data.page
-    pageSize.value = table.data.pageSize
+const handleDelete = async (row) => {
+  await ElMessageBox.confirm(`确定删除「${row.styleName}」吗？`, '提示', {
+    type: 'warning'
+  })
+  const res = await deleteNailStyle({ ID: row.ID })
+  if (res.code === 0) {
+    ElMessage.success('删除成功')
+    if (tableData.value.length === 1 && pagination.page > 1) {
+      pagination.page -= 1
+    }
+    fetchTableData()
   }
 }
 
-getTableData()
-
-// ============== 表格控制部分结束 ===============
-
-// 获取需要的字典 可能为空 按需保留
-const setOptions = async () =>{
-    nail_style_statusOptions.value = await getDictFunc('nail_style_status')
-}
-
-// 获取需要的字典 可能为空 按需保留
-setOptions()
-
-
-// 多选数据
-const multipleSelection = ref([])
-// 多选
-const handleSelectionChange = (val) => {
-    multipleSelection.value = val
-}
-
-// 删除行
-const deleteRow = (row) => {
-    ElMessageBox.confirm('确定要删除吗?', '提示', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-    }).then(() => {
-            deleteNailStyleFunc(row)
-        })
-    }
-
-// 多选删除
-const onDelete = async() => {
-  ElMessageBox.confirm('确定要删除吗?', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
+const handleBatchDelete = async () => {
+  await ElMessageBox.confirm('确定删除选中的款式吗？', '批量删除', {
     type: 'warning'
-  }).then(async() => {
-      const IDs = []
-      if (multipleSelection.value.length === 0) {
-        ElMessage({
-          type: 'warning',
-          message: '请选择要删除的数据'
-        })
-        return
-      }
-      multipleSelection.value &&
-        multipleSelection.value.map(item => {
-          IDs.push(item.ID)
-        })
-      const res = await deleteNailStyleByIds({ IDs })
-      if (res.code === 0) {
-        ElMessage({
-          type: 'success',
-          message: '删除成功'
-        })
-        if (tableData.value.length === IDs.length && page.value > 1) {
-          page.value--
-        }
-        getTableData()
-      }
-      })
+  })
+  const res = await deleteNailStyleByIds({ IDs: selectedIds.value })
+  if (res.code === 0) {
+    ElMessage.success('删除成功')
+    if (tableData.value.length === selectedIds.value.length && pagination.page > 1) {
+      pagination.page -= 1
     }
+    fetchTableData()
+  }
+}
 
-// 行为控制标记（弹窗内部需要增还是改）
-const type = ref('')
+const openTagDialog = () => {
+  tagDialog.form.addTagIds = []
+  tagDialog.form.removeTagIds = []
+  tagDialog.form.operatorNote = ''
+  tagDialog.visible = true
+}
 
-// 更新行
-const updateNailStyleFunc = async(row) => {
-    const res = await findNailStyle({ ID: row.ID })
-    type.value = 'update'
+const submitTagAdjust = async () => {
+  if (!tagDialog.form.addTagIds.length && !tagDialog.form.removeTagIds.length) {
+    ElMessage.warning('请至少选择需要新增或移除的标签')
+    return
+  }
+  tagDialog.loading = true
+  try {
+    const payload = {
+      styleIds: selectedIds.value,
+      addTagIds: tagDialog.form.addTagIds,
+      removeTagIds: tagDialog.form.removeTagIds,
+      operatorNote: tagDialog.form.operatorNote || undefined
+    }
+    const res = await batchUpdateNailStyleTags(payload)
     if (res.code === 0) {
-        formData.value = res.data
-        dialogFormVisible.value = true
+      const result = res.data || {}
+      let message = `成功更新 ${result.updated || 0} 条记录`
+      if (result.skipped?.length) {
+        message += `，跳过 ${result.skipped.length} 条`
+      }
+      if (result.invalidTagIds?.length) {
+        message += `。无效标签：${result.invalidTagIds.join(', ')}`
+      }
+      ElMessage.success(message)
+      tagDialog.visible = false
+      fetchTableData()
     }
+  } finally {
+    tagDialog.loading = false
+  }
 }
 
-
-// 删除行
-const deleteNailStyleFunc = async (row) => {
-    const res = await deleteNailStyle({ ID: row.ID })
-    if (res.code === 0) {
-        ElMessage({
-                type: 'success',
-                message: '删除成功'
-            })
-            if (tableData.value.length === 1 && page.value > 1) {
-            page.value--
-        }
-        getTableData()
-    }
-}
-
-// 弹窗控制标记
-const dialogFormVisible = ref(false)
-
-// 打开弹窗
-const openDialog = () => {
-    type.value = 'create'
-    dialogFormVisible.value = true
-}
-
-// 关闭弹窗
-const closeDialog = () => {
-    dialogFormVisible.value = false
-    formData.value = {
-        styleName: '',
-        images: [],
-        description: '',
-        isRecommended: false,
-        sort: 0,
-        status: '',
-        tagIds: [],
-        }
-}
-// 弹窗确定
-const enterDialog = async () => {
-     btnLoading.value = true
-     elFormRef.value?.validate( async (valid) => {
-             if (!valid) return btnLoading.value = false
-              let res
-              switch (type.value) {
-                case 'create':
-                  res = await createNailStyle(formData.value)
-                  break
-                case 'update':
-                  res = await updateNailStyle(formData.value)
-                  break
-                default:
-                  res = await createNailStyle(formData.value)
-                  break
-              }
-              btnLoading.value = false
-              if (res.code === 0) {
-                ElMessage({
-                  type: 'success',
-                  message: '创建/更改成功'
-                })
-                closeDialog()
-                getTableData()
-              }
-      })
-}
-
-const detailForm = ref({})
-
-// 查看详情控制标记
-const detailShow = ref(false)
-
-
-// 打开详情弹窗
-const openDetailShow = () => {
-  detailShow.value = true
-}
-
-
-// 打开详情
-const getDetails = async (row) => {
-  // 打开弹窗
+const openDetail = async (row) => {
   const res = await findNailStyle({ ID: row.ID })
   if (res.code === 0) {
-    detailForm.value = res.data
-    openDetailShow()
+    detailDrawer.data = transformRecord(res.data)
+    detailDrawer.visible = true
   }
 }
 
-
-// 关闭详情弹窗
-const closeDetailShow = () => {
-  detailShow.value = false
-  detailForm.value = {}
+const initOptions = async () => {
+  const [dictRes, dataSourceRes] = await Promise.all([
+    getDictFunc('nail_style_status'),
+    getNailStyleDataSource()
+  ])
+  statusOptions.value = dictRes || []
+  const tagList = dataSourceRes?.data?.tagIds || []
+  tagOptions.value = tagList.map((item) => ({
+    label: item.label,
+    value: item.value
+  }))
 }
 
-
+onMounted(async () => {
+  await initOptions()
+  fetchTableData()
+})
 </script>
 
-<style>
+<style scoped>
+.nail-style-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 
+.search-form .el-form-item {
+  margin-right: 16px;
+  margin-bottom: 12px;
+}
+
+.w-320 {
+  width: 320px;
+}
+
+.w-240 {
+  width: 240px;
+}
+
+.w-160 {
+  width: 160px;
+}
+
+.thumb {
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+}
+
+.image-placeholder {
+  color: var(--el-color-info);
+  font-size: 12px;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.detail-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.detail-section > h3 {
+  margin: 0 0 12px;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.detail-row .label {
+  width: 100px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.detail-image {
+  width: 120px;
+  height: 120px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.detail-rich {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--el-fill-color-lighter);
+  line-height: 1.7;
+  color: var(--el-text-color-primary);
+}
 </style>

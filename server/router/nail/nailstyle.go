@@ -7,23 +7,27 @@ import (
 
 type NailStyleRouter struct{}
 
-// InitNailStyleRouter 初始化 美甲款式 路由信息
-func (s *NailStyleRouter) InitNailStyleRouter(Router *gin.RouterGroup, PublicRouter *gin.RouterGroup) {
-	nailStyleRouter := Router.Group("nailStyle").Use(middleware.OperationRecord())
-	nailStyleRouterWithoutRecord := Router.Group("nailStyle")
-	nailStyleRouterWithoutAuth := PublicRouter.Group("nailStyle")
+// InitNailStyleRouter 初始化美甲款式路由
+func (s *NailStyleRouter) InitNailStyleRouter(router *gin.RouterGroup, publicRouter *gin.RouterGroup) {
+	protected := router.Group("nailStyle").Use(middleware.OperationRecord())
+	protectedNoRecord := router.Group("nailStyle")
+	public := publicRouter.Group("nailStyle")
+
 	{
-		nailStyleRouter.POST("createNailStyle", nailStyleApi.CreateNailStyle)             // 新建美甲款式
-		nailStyleRouter.DELETE("deleteNailStyle", nailStyleApi.DeleteNailStyle)           // 删除美甲款式
-		nailStyleRouter.DELETE("deleteNailStyleByIds", nailStyleApi.DeleteNailStyleByIds) // 批量删除美甲款式
-		nailStyleRouter.PUT("updateNailStyle", nailStyleApi.UpdateNailStyle)              // 更新美甲款式
+		protected.POST("createNailStyle", nailStyleApi.CreateNailStyle)   // 新建美甲款式
+		protected.DELETE("deleteNailStyle", nailStyleApi.DeleteNailStyle) // 删除美甲款式
+		protected.DELETE("deleteNailStyleByIds", nailStyleApi.DeleteNailStyleByIds)
+		protected.PUT("updateNailStyle", nailStyleApi.UpdateNailStyle)           // 更新美甲款式
+		protected.POST("batchUpdateTags", nailStyleApi.BatchUpdateNailStyleTags) // 批量更新标签
 	}
+
 	{
-		nailStyleRouterWithoutRecord.GET("findNailStyle", nailStyleApi.FindNailStyle) // 根据ID获取美甲款式（需要登录）
+		protectedNoRecord.GET("findNailStyle", nailStyleApi.FindNailStyle) // 根据ID获取美甲款式
 	}
+
 	{
-		nailStyleRouterWithoutAuth.GET("getNailStyleList", nailStyleApi.GetNailStyleList)             // 获取美甲款式列表（公开访问）
-		nailStyleRouterWithoutAuth.GET("getNailStyleDataSource", nailStyleApi.GetNailStyleDataSource) // 获取美甲款式数据源（公开访问）
-		nailStyleRouterWithoutAuth.GET("getNailStylePublic", nailStyleApi.GetNailStylePublic)         // 美甲款式开放接口
+		public.GET("getNailStyleList", nailStyleApi.GetNailStyleList)             // 获取美甲款式列表
+		public.GET("getNailStyleDataSource", nailStyleApi.GetNailStyleDataSource) // 获取数据源
+		public.GET("getNailStylePublic", nailStyleApi.GetNailStylePublic)         // 开放接口
 	}
 }

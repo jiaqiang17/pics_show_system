@@ -44,7 +44,7 @@
   "/src/view/layout/tabs/index.vue": "HistoryComponent",
   "/src/view/login/index.vue": "Login",
   "/src/view/nail/discover.vue": "Discover",
-  "/src/view/nail/nail_style/nail_style.vue": "NailStyle",
+  "/src/view/nail/nail_style/nail_style.vue": "Nail_style",
   "/src/view/nail/nail_style/nail_styleForm.vue": "NailStyleForm",
   "/src/view/nail/nail_tag/nail_tag.vue": "NailTag",
   "/src/view/nail/nail_tag/nail_tagForm.vue": "NailTagForm",
