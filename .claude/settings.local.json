@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Read(//c/Users/jiaqi/.claude/**)",
+      "Bash(cat:*)",
+      "Bash(curl:*)",
+      "Bash(timeout 5 node:*)",
+      "Bash(timeout 3 curl:*)",
+      "Bash(timeout 3 node:*)",
+      "Bash(node:*)",
+      "mcp__GVA-Helper__requirement_analyzer",
+      "mcp__GVA-Helper__gva_analyze",
+      "mcp__GVA-Helper__gva_execute",
+      "mcp__GVA-Helper__gva_review",
+      "mcp__GVA-Helper__create_menu"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "GVA Helper"
+  ]
+}

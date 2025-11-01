@@ -16,6 +16,15 @@ const routes = [
     component: () => import('@/view/login/index.vue')
   },
   {
+    path: '/discover',
+    name: 'NailDiscoverPublic',
+    meta: {
+      title: '美甲发现',
+      public: true
+    },
+    component: () => import('@/view/public/nail-discover.vue')
+  },
+  {
     path: '/scanUpload',
     name: 'ScanUpload',
     meta: {
