@@ -9,7 +9,7 @@ import (
 )
 
 func Gorm(ctx context.Context) {
-	if err := global.GVA_DB.WithContext(ctx).AutoMigrate(new(model.User)); err != nil {
+	if err := global.GVA_DB.WithContext(ctx).AutoMigrate(new(model.User), model.SysUser{}); err != nil {
 		zap.L().Error(errors.Wrap(err, "register gva plugin tables failed").Error())
 	}
 }

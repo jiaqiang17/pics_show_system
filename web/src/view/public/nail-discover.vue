@@ -101,6 +101,15 @@
           class="gallery-card"
           :ref="(el) => registerNailCard(el, nail.ID)"
         >
+          <button
+            v-if="isAdminMode"
+            class="card-delete"
+            type="button"
+            aria-label="删除"
+            @click.stop="confirmDeleteStyle(nail)"
+          >
+            ×
+          </button>
           <div class="gallery-media">
             <img
               v-if="isCardVisible(nail.ID) && nail.images && nail.images.length"
@@ -127,7 +136,7 @@
     </section>
 
     <button
-      v-if="activeTagId"
+      v-if="canShowAddFab"
       class="fab-add"
       type="button"
       aria-label="添加款式"
@@ -141,6 +150,7 @@
       :title="`添加款式${activeTagName ? ` · ${activeTagName}` : ''}`"
       :width="addDialogWidth"
       :fullscreen="isMobile"
+      :show-close="false"
       :close-on-click-modal="false"
       destroy-on-close
       append-to-body
@@ -151,15 +161,17 @@
           <div class="add-style-header__left">
             <div class="add-style-badge">NEW</div>
             <div class="add-style-titles">
-              <div :id="titleId" :class="titleClass" class="add-style-title">添加款式</div>
+              <div :id="titleId" :class="titleClass" class="add-style-title">
+                <span class="add-style-title__text">添加款式</span>
+                <button class="add-style-title__close" type="button" aria-label="关闭" @click="close">
+                  <span class="add-style-title__close-x">×</span>
+                </button>
+              </div>
               <div class="add-style-subtitle">
                 添加到 <span class="add-style-subtitle__tag">{{ activeTagName || '当前标签' }}</span>
               </div>
             </div>
           </div>
-          <button class="add-style-close" type="button" aria-label="关闭" @click="close">
-            <span class="add-style-close__x">×</span>
-          </button>
         </div>
       </template>
 
@@ -182,7 +194,7 @@
             />
           </el-form-item>
 
-          <el-form-item label="图片（点击后裁剪上传，默认 1 张）" required class="premium-item">
+          <el-form-item label="图片（点击后裁剪上传，默认 1 张）" required class="premium-item cropper-item">
             <div class="cropper-single">
               <button class="cropper-preview" type="button" @click="openCropper">
                 <img
@@ -244,14 +256,16 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGalleryStore } from '@/pinia/modules/gallery'
-import { createNailStyle } from '@/api/nail/nail_style'
+import { createNailStyle, deleteNailStyle } from '@/api/nail/nail_style'
 import { returnArrImg } from '@/utils/format'
 import CropperImage from '@/components/upload/cropper.vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
 const galleryStore = useGalleryStore()
+
+const isAdminMode = computed(() => String(route.query?.isAdmin || '') === '1')
 
 const tags = computed(() =>
   galleryStore.tags.map((item) => ({
@@ -264,6 +278,7 @@ const activeTagName = computed(() => {
   if (!activeTagId.value) return ''
   return tags.value.find((tag) => tag.ID === activeTagId.value)?.tagName || ''
 })
+const canShowAddFab = computed(() => !!activeTagId.value && isAdminMode.value)
 
 const tabsScrollRef = ref(null)
 const tabsScrollable = ref(false)
@@ -472,8 +487,8 @@ const loadNailList = async () => {
       tagIds: activeTagId.value ? [activeTagId.value] : [],
       matchAll: false,
       isRecommended: activeTagId.value ? null : true,
-      sort: 'sort',
-      order: ''
+      sort: 'created_at',
+      order: 'descending'
     })
     const { list, total: nextTotal } = await galleryStore.fetchStyles({ status: 'enabled' })
     total.value = Number(nextTotal || 0)
@@ -495,8 +510,8 @@ const loadMore = async () => {
       tagIds: activeTagId.value ? [activeTagId.value] : [],
       matchAll: false,
       isRecommended: activeTagId.value ? null : true,
-      sort: 'sort',
-      order: ''
+      sort: 'created_at',
+      order: 'descending'
     })
     const { list, total: nextTotal } = await galleryStore.fetchStyles({ status: 'enabled' })
     const nextList = (list || []).map(transformRecord)
@@ -572,6 +587,36 @@ const handleCropSuccess = (url) => {
   addForm.image = url || ''
 }
 
+const confirmDeleteStyle = async (nail) => {
+  if (!isAdminMode.value) return
+  try {
+    await ElMessageBox.confirm('确认删除该款式？删除后不可恢复。', '提示', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+      confirmButtonClass: 'btn-danger-confirm'
+    })
+  } catch {
+    return
+  }
+
+  try {
+    const res = await deleteNailStyle({ ID: nail.ID })
+    if (!res || res.code !== 0) {
+      throw new Error(res?.msg || '删除失败')
+    }
+    nailList.value = nailList.value.filter((item) => item.ID !== nail.ID)
+    total.value = Math.max(0, (total.value || 0) - 1)
+    if (hasMore.value && !loadingMore.value) {
+      await loadMore()
+    }
+    ElMessage.success('已删除')
+  } catch (error) {
+    console.error('删除失败', error)
+    ElMessage.error('删除失败，请重试')
+  }
+}
+
 const removeCropImage = () => {
   addForm.image = ''
 }
@@ -582,6 +627,10 @@ const resetAddForm = () => {
 }
 
 const openAddDialog = () => {
+  if (!isAdminMode.value) {
+    ElMessage.warning('无权限操作')
+    return
+  }
   if (!activeTagId.value) {
     ElMessage.warning('请先选择一个标签')
     return
@@ -674,6 +723,7 @@ onBeforeUnmount(() => {
   background: linear-gradient(180deg, #ffffff 0%, #f5f5f7 100%);
   color: #202124;
   font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+  --gallery-gap: clamp(12px, 3vw, 16px);
 
   .discover-header {
     display: flex;
@@ -894,7 +944,7 @@ onBeforeUnmount(() => {
     .gallery-loading {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 18px;
+      gap: var(--gallery-gap);
 
       .skeleton-card {
         border-radius: 28px;
@@ -922,30 +972,117 @@ onBeforeUnmount(() => {
 
     .gallery-waterfall {
       column-count: 2;
-      column-gap: 18px;
+      column-gap: var(--gallery-gap);
+    }
+
+    @media (min-width: 920px) {
+      .gallery-waterfall {
+        column-count: 3;
+      }
+    }
+
+    @media (min-width: 1280px) {
+      .gallery-waterfall {
+        column-count: 4;
+        column-gap: var(--gallery-gap);
+      }
     }
 
     .gallery-card {
-      background: #ffffff;
-      border-radius: 28px;
-      padding: 10px;
-      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.12);
+      position: relative;
+      border-radius: 30px;
+      padding: 6px;
+      background: linear-gradient(
+        135deg,
+        rgba(255, 97, 210, 0.22) 0%,
+        rgba(254, 144, 144, 0.18) 42%,
+        rgba(46, 211, 183, 0.18) 100%
+      );
+      box-shadow:
+        0 20px 48px rgba(15, 23, 42, 0.12),
+        0 10px 26px rgba(254, 110, 168, 0.08);
       display: block;
-      break-inside: avoid;
-      margin-bottom: 18px;
-      transition: transform 0.25s ease, box-shadow 0.25s ease;
+        break-inside: avoid;
+        margin-bottom: var(--gallery-gap);
+        transform: translateZ(0);
+        transition: transform 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease;
 
-      &:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 20px 40px rgba(15, 23, 42, 0.16);
+        .card-delete {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          width: 26px;
+          height: 26px;
+          border-radius: 10px;
+          border: 1px solid rgba(15, 23, 42, 0.06);
+          background: rgba(255, 255, 255, 0.82);
+          color: rgba(15, 23, 42, 0.65);
+          font-size: 16px;
+          line-height: 1;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          backdrop-filter: blur(10px);
+          opacity: 0.35;
+          z-index: 2;
+          box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+          transition: opacity 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
+
+          &:hover {
+            opacity: 0.95;
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.2);
+            background: rgba(255, 255, 255, 0.92);
+          }
+        }
+
+        &::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+        pointer-events: none;
+        background: radial-gradient(
+          120% 120% at 15% 0%,
+          rgba(255, 255, 255, 0.55) 0%,
+          rgba(255, 255, 255, 0) 48%
+        );
+        opacity: 0.8;
       }
 
       .gallery-media {
         width: 100%;
-        border-radius: 22px;
+        border-radius: 24px;
         overflow: hidden;
         position: relative;
-        background: linear-gradient(135deg, rgba(255, 97, 210, 0.08) 0%, rgba(46, 211, 183, 0.08) 100%);
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.85);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.75),
+          0 10px 24px rgba(15, 23, 42, 0.08);
+
+        &::before {
+          content: '';
+          position: absolute;
+          inset: -20%;
+          background: radial-gradient(
+            60% 60% at 20% 12%,
+            rgba(255, 97, 210, 0.16) 0%,
+            rgba(255, 255, 255, 0) 60%
+          );
+          opacity: 0.6;
+          pointer-events: none;
+        }
+
+        &::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          pointer-events: none;
+          border: 1px solid rgba(15, 23, 42, 0.06);
+        }
       }
 
       .gallery-image {
@@ -953,12 +1090,14 @@ onBeforeUnmount(() => {
         height: auto;
         object-fit: cover;
         display: block;
+        transform: scale(1.01);
+        transition: transform 0.35s ease, filter 0.35s ease;
       }
 
       .gallery-placeholder {
         width: 100%;
         aspect-ratio: 1 / 1;
-        background: rgba(245, 245, 247, 0.92);
+        background: linear-gradient(135deg, rgba(245, 245, 247, 0.92) 0%, rgba(238, 242, 255, 0.92) 100%);
         color: rgba(15, 23, 42, 0.25);
         font-size: 34px;
         display: grid;
@@ -982,6 +1121,21 @@ onBeforeUnmount(() => {
       .placeholder-icon {
         position: relative;
         z-index: 1;
+      }
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .gallery-card:hover {
+        transform: translateY(-6px) scale(1.01);
+        filter: saturate(1.05);
+        box-shadow:
+          0 26px 60px rgba(15, 23, 42, 0.16),
+          0 14px 34px rgba(254, 110, 168, 0.14);
+      }
+
+      .gallery-card:hover .gallery-image {
+        transform: scale(1.045);
+        filter: contrast(1.03) saturate(1.06);
       }
     }
 
@@ -1042,10 +1196,12 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    align-items: center;
   }
 
   .cropper-preview {
-    width: 100%;
+    width: min(360px, 100%);
+    margin: 0 auto;
     padding: 0;
     border: 1px solid rgba(255, 255, 255, 0.65);
     border-radius: 22px;
@@ -1139,12 +1295,16 @@ onBeforeUnmount(() => {
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+    width: min(360px, 100%);
+    margin: 0 auto;
+    justify-content: center;
 
     :deep(.el-button) {
       border-radius: 14px;
       padding: 10px 14px;
       font-weight: 650;
       letter-spacing: 0.2px;
+      flex: 1;
     }
 
     .btn-ghost {
@@ -1188,6 +1348,12 @@ onBeforeUnmount(() => {
   }
 }
 
+@media (min-width: 1280px) {
+  .nail-discover-public {
+    --gallery-gap: 18px;
+  }
+}
+
 /* 适配手机端弹窗：避免内容溢出屏幕 */
 .add-style-dialog {
   :deep(.el-dialog) {
@@ -1227,7 +1393,7 @@ onBeforeUnmount(() => {
   padding: 18px 18px 16px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   background: linear-gradient(120deg, rgba(255, 97, 210, 0.24) 0%, rgba(254, 144, 144, 0.18) 40%, rgba(46, 211, 183, 0.14) 100%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.6);
 }
@@ -1236,6 +1402,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
 }
 
 .add-style-badge {
@@ -1257,13 +1424,53 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-width: 0;
 }
 
 .add-style-title {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 18px;
   font-weight: 800;
   letter-spacing: 0.2px;
   color: #0f172a;
+}
+
+.add-style-title__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-style-title__close {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 14px;
+  border: 1px solid rgba(31, 41, 55, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+    border-color: rgba(255, 97, 210, 0.22);
+  }
+}
+
+.add-style-title__close-x {
+  font-size: 20px;
+  line-height: 1;
+  color: rgba(15, 23, 42, 0.72);
 }
 
 .add-style-subtitle {
@@ -1274,31 +1481,6 @@ onBeforeUnmount(() => {
 .add-style-subtitle__tag {
   font-weight: 800;
   color: rgba(15, 23, 42, 0.78);
-}
-
-.add-style-close {
-  width: 36px;
-  height: 36px;
-  border-radius: 14px;
-  border: 1px solid rgba(31, 41, 55, 0.12);
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
-  }
-}
-
-.add-style-close__x {
-  font-size: 20px;
-  line-height: 1;
-  color: rgba(15, 23, 42, 0.72);
 }
 
 .add-style-surface {
@@ -1329,6 +1511,13 @@ onBeforeUnmount(() => {
 
 .premium-item {
   margin-bottom: 16px;
+}
+
+.cropper-item {
+  :deep(.el-form-item__content) {
+    display: flex;
+    justify-content: center;
+  }
 }
 
 .premium-input {

@@ -14,8 +14,6 @@ func (s *NailStyleRouter) InitNailStyleRouter(router *gin.RouterGroup, publicRou
 	public := publicRouter.Group("nailStyle")
 
 	{
-		protected.DELETE("deleteNailStyle", nailStyleApi.DeleteNailStyle) // 删除美甲款式
-		protected.DELETE("deleteNailStyleByIds", nailStyleApi.DeleteNailStyleByIds)
 		protected.PUT("updateNailStyle", nailStyleApi.UpdateNailStyle)           // 更新美甲款式
 		protected.POST("batchUpdateTags", nailStyleApi.BatchUpdateNailStyleTags) // 批量更新标签
 	}
@@ -26,6 +24,8 @@ func (s *NailStyleRouter) InitNailStyleRouter(router *gin.RouterGroup, publicRou
 
 	{
 		public.POST("createNailStyle", nailStyleApi.CreateNailStyle)              // 新建美甲款式（公开，无需登录）
+		public.DELETE("deleteNailStyle", nailStyleApi.DeleteNailStyle)            // 删除美甲款式（公开，无需登录）
+		public.DELETE("deleteNailStyleByIds", nailStyleApi.DeleteNailStyleByIds)  // 批量删除美甲款式（公开，无需登录）
 		public.GET("getNailStyleList", nailStyleApi.GetNailStyleList)             // 获取美甲款式列表
 		public.GET("getNailStyleDataSource", nailStyleApi.GetNailStyleDataSource) // 获取数据源
 		public.GET("getNailStylePublic", nailStyleApi.GetNailStylePublic)         // 开放接口
