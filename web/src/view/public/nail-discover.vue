@@ -13,25 +13,72 @@
     </header>
 
     <section class="category-tabs">
-      <div class="tabs-scroll">
-        <button
-          class="tab-item"
-          type="button"
-          :class="{ active: activeTagId === null }"
-          @click="selectTag(null)"
+      <div
+        class="tabs-scroll-wrap"
+        :class="{
+          'is-scrollable': tabsScrollable,
+          'at-start': tabsAtStart,
+          'at-end': tabsAtEnd,
+          'is-hinting': showTabScrollHint
+        }"
+      >
+        <div
+          ref="tabsScrollRef"
+          class="tabs-scroll"
+          @scroll.passive="handleTabsScroll"
+          @touchstart.passive="hideTabsHint"
+          @wheel.passive="hideTabsHint"
         >
-          为你推荐
-        </button>
-        <button
-          v-for="tag in tags"
-          :key="tag.ID"
-          class="tab-item"
-          type="button"
-          :class="{ active: activeTagId === tag.ID }"
-          @click="selectTag(tag.ID)"
-        >
-          {{ tag.tagName }}
-        </button>
+          <button
+            class="tab-item"
+            type="button"
+            :class="{ active: activeTagId === null }"
+            @click="selectTag(null)"
+          >
+            为你推荐
+          </button>
+          <button
+            v-for="tag in tags"
+            :key="tag.ID"
+            class="tab-item"
+            type="button"
+            :class="{ active: activeTagId === tag.ID }"
+            @click="selectTag(tag.ID)"
+          >
+            {{ tag.tagName }}
+          </button>
+        </div>
+
+        <div v-if="tabsScrollable" class="tabs-scroll-affordance" aria-hidden="true">
+          <div v-show="showTabsLeft" class="tabs-edge tabs-edge--left">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M15 18l-6-6 6-6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+          <div v-show="showTabsRight" class="tabs-edge tabs-edge--right">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M9 6l6 6-6 6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+        </div>
+
+        <div v-if="tabsScrollable && showTabScrollHint" class="tabs-scroll-hint" aria-hidden="true">
+          左右滑动查看更多
+        </div>
       </div>
     </section>
 
@@ -217,6 +264,74 @@ const activeTagName = computed(() => {
   if (!activeTagId.value) return ''
   return tags.value.find((tag) => tag.ID === activeTagId.value)?.tagName || ''
 })
+
+const tabsScrollRef = ref(null)
+const tabsScrollable = ref(false)
+const tabsAtStart = ref(true)
+const tabsAtEnd = ref(false)
+const showTabScrollHint = ref(false)
+const tabsUserInteracted = ref(false)
+const showTabsLeft = computed(
+  () => tabsScrollable.value && tabsUserInteracted.value && !tabsAtStart.value
+)
+const showTabsRight = computed(() => tabsScrollable.value && !tabsAtEnd.value)
+let tabsHintTimer = null
+let tabsHintSeen = false
+
+const resetTabsScrollToStart = async () => {
+  await nextTick()
+  const applyStart = () => {
+    const el = tabsScrollRef.value
+    if (!el) return
+    tabsUserInteracted.value = false
+    el.scrollLeft = 0
+    updateTabsScrollState()
+  }
+
+  applyStart()
+  if (typeof requestAnimationFrame !== 'undefined') {
+    requestAnimationFrame(applyStart)
+    requestAnimationFrame(() => requestAnimationFrame(applyStart))
+  }
+  setTimeout(applyStart, 50)
+  setTimeout(applyStart, 200)
+}
+
+const updateTabsScrollState = () => {
+  const el = tabsScrollRef.value
+  if (!el) return
+  const scrollable = el.scrollWidth > el.clientWidth + 4
+  tabsScrollable.value = scrollable
+  tabsAtStart.value = el.scrollLeft <= 2
+  tabsAtEnd.value = el.scrollLeft + el.clientWidth >= el.scrollWidth - 2
+  if (tabsAtStart.value) {
+    tabsUserInteracted.value = false
+  }
+
+  if (scrollable && !tabsHintSeen) {
+    tabsHintSeen = true
+    showTabScrollHint.value = true
+    if (tabsHintTimer) clearTimeout(tabsHintTimer)
+    tabsHintTimer = setTimeout(() => {
+      showTabScrollHint.value = false
+    }, 2200)
+  }
+}
+
+const hideTabsHint = () => {
+  showTabScrollHint.value = false
+  if (tabsHintTimer) {
+    clearTimeout(tabsHintTimer)
+    tabsHintTimer = null
+  }
+}
+
+const handleTabsScroll = () => {
+  const el = tabsScrollRef.value
+  if (el && el.scrollLeft > 2) tabsUserInteracted.value = true
+  updateTabsScrollState()
+  if (!tabsAtStart.value) hideTabsHint()
+}
 const containerRef = ref(null)
 const sentinelRef = ref(null)
 const nailList = ref([])
@@ -520,6 +635,11 @@ onMounted(async () => {
     }
   }
   await loadTags()
+  await nextTick()
+  await resetTabsScrollToStart()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', updateTabsScrollState)
+  }
   const initialTagId = parseTagId(route.query.tagId)
   if (initialTagId) {
     activeTagId.value = initialTagId
@@ -530,6 +650,10 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   imageObserver?.disconnect?.()
   loadMoreObserver?.disconnect?.()
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', updateTabsScrollState)
+  }
+  hideTabsHint()
   if (!mediaQuery) return
   if (mediaQuery.removeEventListener) {
     mediaQuery.removeEventListener('change', updateIsMobile)
@@ -600,11 +724,57 @@ onBeforeUnmount(() => {
   .category-tabs {
     margin-bottom: 12px;
 
+    .tabs-scroll-wrap {
+      position: relative;
+      border-radius: 26px;
+      padding: 6px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(15, 23, 42, 0.06);
+      box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+      backdrop-filter: blur(14px);
+      overflow: hidden;
+
+      &::before,
+      &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 46px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.22s ease;
+        z-index: 2;
+      }
+
+      &.is-scrollable::before {
+        left: 0;
+        opacity: 1;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0) 88%);
+      }
+
+      &.is-scrollable::after {
+        right: 0;
+        opacity: 1;
+        background: linear-gradient(270deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0) 88%);
+      }
+
+      &.at-start::before {
+        opacity: 0;
+      }
+
+      &.at-end::after {
+        opacity: 0;
+      }
+    }
+
     .tabs-scroll {
       display: flex;
       gap: 12px;
       overflow-x: auto;
-      padding-bottom: 6px;
+      padding: 6px 0;
+      scroll-snap-type: x proximity;
+      -webkit-overflow-scrolling: touch;
 
       &::-webkit-scrollbar {
         display: none;
@@ -623,6 +793,7 @@ onBeforeUnmount(() => {
         box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
         cursor: pointer;
         transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        scroll-snap-align: start;
 
         &:active {
           transform: scale(0.98);
@@ -634,6 +805,81 @@ onBeforeUnmount(() => {
           box-shadow: 0 10px 28px rgba(254, 110, 168, 0.35);
         }
       }
+    }
+
+    .tabs-scroll-affordance {
+      position: absolute;
+      top: 6px;
+      bottom: 6px;
+      left: 0;
+      right: 0;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .tabs-edge {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 28px;
+      height: 28px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(15, 23, 42, 0.5);
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      box-shadow: 0 12px 26px rgba(15, 23, 42, 0.1);
+      opacity: 0.9;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      user-select: none;
+    }
+
+    .tabs-edge svg {
+      width: 16px;
+      height: 16px;
+      display: block;
+    }
+
+    .tabs-edge--left {
+      left: 8px;
+    }
+
+    .tabs-edge--right {
+      right: 8px;
+    }
+
+    .tabs-scroll-wrap.at-start .tabs-edge--left {
+      opacity: 0;
+      transform: translate(-6px, -50%);
+    }
+
+    .tabs-scroll-wrap.at-end .tabs-edge--right {
+      opacity: 0;
+      transform: translate(6px, -50%);
+    }
+
+    .tabs-scroll-wrap.is-hinting:not(.at-end) .tabs-edge--right {
+      animation: tabsNudge 1.2s ease-in-out infinite;
+    }
+
+    .tabs-scroll-hint {
+      position: absolute;
+      right: 14px;
+      bottom: 16px;
+      z-index: 4;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      color: rgba(15, 23, 42, 0.72);
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
+      backdrop-filter: blur(12px);
+      pointer-events: none;
     }
   }
 
@@ -1148,6 +1394,18 @@ onBeforeUnmount(() => {
   }
   100% {
     transform: translateX(60%);
+  }
+}
+
+@keyframes tabsNudge {
+  0% {
+    transform: translate(0, -50%);
+  }
+  50% {
+    transform: translate(4px, -50%);
+  }
+  100% {
+    transform: translate(0, -50%);
   }
 }
 </style>
