@@ -928,7 +928,7 @@ onBeforeUnmount(() => {
     .gallery-card {
       background: #ffffff;
       border-radius: 28px;
-      padding: 14px;
+      padding: 10px;
       box-shadow: 0 16px 32px rgba(15, 23, 42, 0.12);
       display: block;
       break-inside: avoid;
