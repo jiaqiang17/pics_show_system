@@ -20,3 +20,11 @@ func (e *FileUploadAndDownloadRouter) InitFileUploadAndDownloadRouter(Router *gi
 		fileUploadAndDownloadRouter.POST("importURL", exaFileUploadAndDownloadApi.ImportURL)                               // 导入URL
 	}
 }
+
+// InitFileUploadAndDownloadPublicRouter 初始化公开上传路由（无需登录）
+func (e *FileUploadAndDownloadRouter) InitFileUploadAndDownloadPublicRouter(Router *gin.RouterGroup) {
+	fileUploadAndDownloadRouter := Router.Group("fileUploadAndDownload")
+	{
+		fileUploadAndDownloadRouter.POST("uploadPublic", exaFileUploadAndDownloadApi.UploadFile) // 公开上传文件（给移动端/公开页面使用）
+	}
+}

@@ -8,7 +8,7 @@ import (
 // NailStyle 表示美甲款式信息
 type NailStyle struct {
 	global.GVA_MODEL
-	StyleName     *string        `json:"styleName" form:"styleName" gorm:"comment:款式名称;column:style_name;size:255;" binding:"required"`          // 款式名称
+	StyleName     *string        `json:"styleName" form:"styleName" gorm:"comment:款式名称;column:style_name;size:255;"`                             // 款式名称
 	Images        datatypes.JSON `json:"images" form:"images" gorm:"comment:美甲图片;column:images;" swaggertype:"array,object" binding:"required"`  // 美甲图片
 	Description   *string        `json:"description" form:"description" gorm:"comment:款式介绍;column:description;type:text;"`                       // 款式介绍
 	IsRecommended *bool          `json:"isRecommended" form:"isRecommended" gorm:"default:false;comment:是否推荐到首页;column:is_recommended;"`         // 是否推荐
