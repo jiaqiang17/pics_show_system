@@ -282,11 +282,11 @@
               @pointerup="onPreviewPointerUp"
               @pointercancel="onPreviewPointerCancel"
             >
-              <div class="nail-preview__slide" :style="previewSlideStyle">
-                <img
-                  v-if="previewUrl"
-                  class="nail-preview__image"
-                  :src="previewUrl"
+               <div ref="previewSlideRef" class="nail-preview__slide" :style="previewSlideStyle">
+                 <img
+                   v-if="previewUrl"
+                   class="nail-preview__image"
+                   :src="previewUrl"
                   :alt="previewAlt"
                   draggable="false"
                   @error="handleImageError"
@@ -453,6 +453,7 @@ const hasMore = computed(() => nailList.value.length < (total.value || 0))
 const previewVisible = ref(false)
 const previewIndex = ref(0)
 const previewStageRef = ref(null)
+const previewSlideRef = ref(null)
 const previewTranslateX = ref(0)
 const previewTransition = ref('transform 260ms cubic-bezier(0.22, 1, 0.36, 1)')
 const previewPaging = ref(false)
@@ -794,10 +795,9 @@ const animateToIndex = async (nextIndex, direction) => {
   previewTranslateX.value = inX
   await nextTick()
 
-  requestAnimationFrame(() => {
-    previewTransition.value = 'transform 240ms cubic-bezier(0.22, 1, 0.36, 1)'
-    previewTranslateX.value = 0
-  })
+  previewSlideRef.value?.getBoundingClientRect?.()
+  previewTransition.value = 'transform 240ms cubic-bezier(0.22, 1, 0.36, 1)'
+  previewTranslateX.value = 0
   await sleep(240)
 }
 
