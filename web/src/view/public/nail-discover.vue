@@ -110,9 +110,18 @@
           >
             ×
           </button>
-          <div class="gallery-media">
+          <div
+            class="gallery-media"
+            role="button"
+            :tabindex="canPreview(nail) ? 0 : -1"
+            :aria-disabled="!canPreview(nail)"
+            :class="{ 'is-clickable': canPreview(nail) }"
+            @click="openPreview(nail)"
+            @keydown.enter.prevent="openPreview(nail)"
+            @keydown.space.prevent="openPreview(nail)"
+          >
             <img
-              v-if="isCardVisible(nail.ID) && nail.images && nail.images.length"
+              v-if="isCardVisible(nail.ID) && canPreview(nail)"
               :src="getImageUrl(nail.images[0])"
               :alt="nail.styleName"
               class="gallery-image"
@@ -249,6 +258,90 @@
         </div>
       </template>
     </el-dialog>
+
+    <teleport to="body">
+      <transition name="nail-preview-fade">
+        <div v-if="previewVisible" class="nail-preview" @click.self="closePreview">
+          <div class="nail-preview__shell" role="dialog" aria-modal="true" aria-label="图片预览">
+            <div class="nail-preview__header">
+              <button class="nail-preview__close" type="button" aria-label="关闭" @click="closePreview">
+                <span class="nail-preview__close-x">×</span>
+              </button>
+              <div class="nail-preview__header-meta">
+                <div class="nail-preview__header-tag">{{ activeTagName || '为你推荐' }}</div>
+                <div class="nail-preview__header-count">{{ previewCountText }}</div>
+              </div>
+              <div class="nail-preview__header-spacer"></div>
+            </div>
+
+            <div
+              ref="previewStageRef"
+              class="nail-preview__stage"
+              @pointerdown="onPreviewPointerDown"
+              @pointermove="onPreviewPointerMove"
+              @pointerup="onPreviewPointerUp"
+              @pointercancel="onPreviewPointerCancel"
+            >
+              <div class="nail-preview__slide" :style="previewSlideStyle">
+                <img
+                  v-if="previewUrl"
+                  class="nail-preview__image"
+                  :src="previewUrl"
+                  :alt="previewAlt"
+                  draggable="false"
+                  @error="handleImageError"
+                />
+              </div>
+
+              <div v-if="previewPaging" class="nail-preview__loading">正在加载下一页…</div>
+
+              <button
+                class="nail-preview__nav nail-preview__nav--left"
+                type="button"
+                aria-label="上一张"
+                :class="{ 'is-muted': previewAtStart }"
+                @click.stop="goPrev"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    d="M15 18l-6-6 6-6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <button
+                class="nail-preview__nav nail-preview__nav--right"
+                type="button"
+                aria-label="下一张"
+                :class="{ 'is-muted': previewAtEnd }"
+                @click.stop="goNext"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    d="M9 6l6 6-6 6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+
+              <transition name="nail-preview-toast">
+                <div v-if="previewToastVisible" class="nail-preview__toast" aria-live="polite">
+                  {{ previewToastText }}
+                </div>
+              </transition>
+            </div>
+          </div>
+        </div>
+      </transition>
+    </teleport>
   </div>
 </template>
 
@@ -356,6 +449,22 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const hasMore = computed(() => nailList.value.length < (total.value || 0))
+
+const previewVisible = ref(false)
+const previewIndex = ref(0)
+const previewStageRef = ref(null)
+const previewTranslateX = ref(0)
+const previewTransition = ref('transform 260ms cubic-bezier(0.22, 1, 0.36, 1)')
+const previewPaging = ref(false)
+const previewToastText = ref('')
+const previewToastVisible = ref(false)
+let previewToastTimer = null
+let previewBodyOverflowCache = ''
+let loadMorePromise = null
+let previewPointerId = null
+let previewPointerStartX = 0
+let previewPointerStartY = 0
+let previewPointerAxis = null
 
 const visibleMap = reactive({})
 const resetVisibleMap = () => {
@@ -526,7 +635,7 @@ const loadMore = async () => {
 const triggerLoadMore = async () => {
   const sentinelEl = sentinelRef.value
   if (sentinelEl) loadMoreObserver?.unobserve?.(sentinelEl)
-  await loadMore()
+  await ensureLoadMore()
   await nextTick()
   if (sentinelRef.value && hasMore.value) {
     loadMoreObserver?.observe?.(sentinelRef.value)
@@ -559,17 +668,20 @@ const syncTagQuery = (tagId) => {
 
 const selectTag = (tagId) => {
   if (activeTagId.value === tagId) return
+  closePreview()
   activeTagId.value = tagId
   syncTagQuery(tagId)
   resetAndLoad()
 }
 
 const getImageUrl = (image) => {
+  if (!image) return ''
   const list = returnArrImg(image)
   return list.length ? list[0] : ''
 }
 
 const getSingleImageUrl = (image) => {
+  if (!image) return ''
   const list = returnArrImg(image)
   return list.length ? list[0] : ''
 }
@@ -577,6 +689,273 @@ const getSingleImageUrl = (image) => {
 const handleImageError = (event) => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect fill="#f5f5f5" width="200" height="200"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="60">&#128133;</text></svg>`
   event.target.src = `data:image/svg+xml,${encodeURIComponent(svg)}`
+}
+
+const canPreview = (nail) => {
+  const image = nail?.images?.[0]
+  return !!getImageUrl(image)
+}
+
+const previewItems = computed(() =>
+  nailList.value
+    .map((nail) => ({
+      id: nail?.ID,
+      styleName: nail?.styleName || '',
+      url: getImageUrl(nail?.images?.[0])
+    }))
+    .filter((item) => item.id != null && item.url)
+)
+
+const previewUrl = computed(() => previewItems.value[previewIndex.value]?.url || '')
+const previewAlt = computed(
+  () => previewItems.value[previewIndex.value]?.styleName || activeTagName.value || '图片预览'
+)
+const previewCountText = computed(() => {
+  const current = previewIndex.value + 1
+  const totalCount = total.value || previewItems.value.length
+  return `${current} / ${Math.max(totalCount, current)}`
+})
+
+const previewAtStart = computed(() => previewIndex.value <= 0)
+const previewAtEnd = computed(
+  () => previewIndex.value >= previewItems.value.length - 1 && !hasMore.value
+)
+
+const previewSlideStyle = computed(() => ({
+  transform: `translate3d(${previewTranslateX.value}px, 0, 0)`,
+  transition: previewTransition.value
+}))
+
+const showPreviewToast = (text) => {
+  previewToastText.value = text
+  previewToastVisible.value = true
+  if (previewToastTimer) globalThis.clearTimeout(previewToastTimer)
+  previewToastTimer = globalThis.setTimeout(() => {
+    previewToastVisible.value = false
+  }, 1200)
+}
+
+const setPreviewScrollLocked = (locked) => {
+  if (typeof document === 'undefined') return
+  if (locked) {
+    previewBodyOverflowCache = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return
+  }
+  document.body.style.overflow = previewBodyOverflowCache || ''
+  previewBodyOverflowCache = ''
+}
+
+const getPreviewStageWidth = () =>
+  previewStageRef.value?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 375)
+
+const sleep = (ms) => new Promise((resolve) => globalThis.setTimeout(resolve, ms))
+
+const ensureLoadMore = async () => {
+  if (!hasMore.value) return false
+  if (loadMorePromise) return loadMorePromise
+
+  const before = nailList.value.length
+  loadMorePromise = (async () => {
+    await loadMore()
+    return nailList.value.length > before
+  })()
+
+  try {
+    return await loadMorePromise
+  } finally {
+    loadMorePromise = null
+  }
+}
+
+const bounceEdge = async (direction) => {
+  const width = getPreviewStageWidth()
+  const amplitude = Math.min(22, Math.max(14, width * 0.05))
+  const sign = direction === 'left' ? -1 : 1
+  previewTransition.value = 'transform 140ms ease'
+  previewTranslateX.value = sign * amplitude
+  await sleep(140)
+  previewTransition.value = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)'
+  previewTranslateX.value = 0
+  await sleep(220)
+}
+
+const animateToIndex = async (nextIndex, direction) => {
+  const width = getPreviewStageWidth()
+  const outX = direction === 'next' ? -width : width
+  const inX = direction === 'next' ? width : -width
+
+  previewTransition.value = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)'
+  previewTranslateX.value = outX
+  await sleep(220)
+
+  previewTransition.value = 'none'
+  previewIndex.value = nextIndex
+  previewTranslateX.value = inX
+  await nextTick()
+
+  requestAnimationFrame(() => {
+    previewTransition.value = 'transform 240ms cubic-bezier(0.22, 1, 0.36, 1)'
+    previewTranslateX.value = 0
+  })
+  await sleep(240)
+}
+
+const goPrev = async () => {
+  if (!previewVisible.value) return
+  if (previewPaging.value) return
+  if (previewIndex.value <= 0) {
+    showPreviewToast('已经是第一张啦')
+    await bounceEdge('right')
+    return
+  }
+  await animateToIndex(previewIndex.value - 1, 'prev')
+}
+
+const goNext = async () => {
+  if (!previewVisible.value) return
+  if (previewPaging.value) return
+
+  const nextIndex = previewIndex.value + 1
+  if (nextIndex <= previewItems.value.length - 1) {
+    await animateToIndex(nextIndex, 'next')
+    return
+  }
+
+  if (!hasMore.value) {
+    showPreviewToast('已经到底啦')
+    await bounceEdge('left')
+    return
+  }
+
+  previewPaging.value = true
+  const before = previewItems.value.length
+  try {
+    const loaded = await ensureLoadMore()
+    await nextTick()
+    const after = previewItems.value.length
+    if (loaded && after > before) {
+      await animateToIndex(nextIndex, 'next')
+      return
+    }
+    showPreviewToast('已经到底啦')
+    await bounceEdge('left')
+  } catch (error) {
+    console.error('加载更多失败', error)
+    showPreviewToast('加载失败，请稍后再试')
+    await bounceEdge('left')
+  } finally {
+    previewPaging.value = false
+  }
+}
+
+const openPreview = async (nail) => {
+  if (!canPreview(nail)) return
+  const targetId = nail?.ID
+  const targetIndex = previewItems.value.findIndex((item) => item.id === targetId)
+  previewIndex.value = Math.max(0, targetIndex)
+  previewVisible.value = true
+  previewTranslateX.value = 0
+  previewTransition.value = 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1)'
+  setPreviewScrollLocked(true)
+}
+
+const closePreview = () => {
+  if (!previewVisible.value) return
+  previewVisible.value = false
+  previewPaging.value = false
+  previewTranslateX.value = 0
+  if (previewPointerId !== null) {
+    previewStageRef.value?.releasePointerCapture?.(previewPointerId)
+  }
+  previewPointerId = null
+  previewPointerAxis = null
+  if (previewToastTimer) {
+    globalThis.clearTimeout(previewToastTimer)
+    previewToastTimer = null
+  }
+  previewToastVisible.value = false
+  setPreviewScrollLocked(false)
+}
+
+const onPreviewPointerDown = (event) => {
+  if (!previewVisible.value) return
+  if (previewPaging.value) return
+  if (event.pointerType === 'mouse' && event.button !== 0) return
+  previewPointerId = event.pointerId
+  previewPointerStartX = event.clientX
+  previewPointerStartY = event.clientY
+  previewPointerAxis = null
+  previewTransition.value = 'none'
+  previewStageRef.value?.setPointerCapture?.(event.pointerId)
+}
+
+const onPreviewPointerMove = (event) => {
+  if (previewPointerId === null) return
+  if (event.pointerId !== previewPointerId) return
+  if (!previewVisible.value) return
+
+  const dx = event.clientX - previewPointerStartX
+  const dy = event.clientY - previewPointerStartY
+
+  if (!previewPointerAxis) {
+    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return
+    previewPointerAxis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
+  }
+  if (previewPointerAxis !== 'x') return
+  if (event.cancelable) event.preventDefault()
+
+  const width = getPreviewStageWidth()
+  const atStart = previewIndex.value <= 0
+  const atEndLoaded = previewIndex.value >= previewItems.value.length - 1
+  const atHardEnd = atEndLoaded && !hasMore.value
+  let nextX = dx
+  if ((dx > 0 && atStart) || (dx < 0 && atHardEnd)) {
+    nextX = dx * 0.35
+  } else {
+    nextX = Math.max(-width, Math.min(width, dx))
+  }
+  previewTranslateX.value = nextX
+}
+
+const onPreviewPointerUp = async (event) => {
+  if (previewPointerId === null) return
+  if (event.pointerId !== previewPointerId) return
+
+  const dx = event.clientX - previewPointerStartX
+  previewStageRef.value?.releasePointerCapture?.(event.pointerId)
+  previewPointerId = null
+
+  if (previewPointerAxis !== 'x') {
+    previewTransition.value = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)'
+    previewTranslateX.value = 0
+    previewPointerAxis = null
+    return
+  }
+
+  const width = getPreviewStageWidth()
+  const threshold = Math.min(90, Math.max(56, width * 0.18))
+  previewPointerAxis = null
+
+  if (dx > threshold) {
+    await goPrev()
+    return
+  }
+  if (dx < -threshold) {
+    await goNext()
+    return
+  }
+
+  previewTransition.value = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)'
+  previewTranslateX.value = 0
+}
+
+const onPreviewPointerCancel = () => {
+  if (previewPointerId === null) return
+  previewPointerId = null
+  previewPointerAxis = null
+  previewTransition.value = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)'
+  previewTranslateX.value = 0
 }
 
 const openCropper = () => {
@@ -703,6 +1082,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('resize', updateTabsScrollState)
   }
   hideTabsHint()
+  closePreview()
   if (!mediaQuery) return
   if (mediaQuery.removeEventListener) {
     mediaQuery.removeEventListener('change', updateIsMobile)
@@ -1061,6 +1441,15 @@ onBeforeUnmount(() => {
         box-shadow:
           inset 0 1px 0 rgba(255, 255, 255, 0.75),
           0 10px 24px rgba(15, 23, 42, 0.08);
+
+        &.is-clickable {
+          cursor: zoom-in;
+        }
+
+        &:focus-visible {
+          outline: 3px solid rgba(255, 97, 210, 0.42);
+          outline-offset: 4px;
+        }
 
         &::before {
           content: '';
@@ -1563,6 +1952,218 @@ onBeforeUnmount(() => {
 
 .add-style-dialog :deep(.el-button.btn-footer-primary .el-button__loading) {
   color: rgba(255, 255, 255, 0.9);
+}
+
+.nail-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  background: radial-gradient(
+      120% 110% at 10% 10%,
+      rgba(255, 97, 210, 0.22) 0%,
+      rgba(254, 144, 144, 0.18) 30%,
+      rgba(15, 23, 42, 0.92) 70%
+    ),
+    rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(18px);
+}
+
+.nail-preview__shell {
+  width: min(100vw, 560px);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nail-preview__header {
+  padding: 14px 16px 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nail-preview__close {
+  width: 40px;
+  height: 40px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+
+  &:active {
+    transform: scale(0.96);
+  }
+}
+
+.nail-preview__close-x {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.nail-preview__header-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.nail-preview__header-tag {
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.78);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nail-preview__header-count {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.nail-preview__header-spacer {
+  flex: 1;
+}
+
+.nail-preview__stage {
+  flex: 1;
+  position: relative;
+  padding: 12px 14px 26px;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  overscroll-behavior: contain;
+  user-select: none;
+}
+
+.nail-preview__slide {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+}
+
+.nail-preview__image {
+  width: 100%;
+  max-width: 100%;
+  max-height: calc(100vh - 128px);
+  object-fit: contain;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.45),
+    0 12px 30px rgba(15, 23, 42, 0.28);
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.nail-preview__loading {
+  position: absolute;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  font-weight: 700;
+  backdrop-filter: blur(14px);
+  pointer-events: none;
+}
+
+.nail-preview__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  color: rgba(255, 255, 255, 0.92);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.2s ease, background 0.2s ease;
+
+  svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  &.is-muted {
+    opacity: 0.42;
+  }
+
+  &:active {
+    transform: translateY(-50%) scale(0.96);
+  }
+}
+
+.nail-preview__nav--left {
+  left: 12px;
+}
+
+.nail-preview__nav--right {
+  right: 12px;
+}
+
+.nail-preview__toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.2px;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.nail-preview-fade-enter-active,
+.nail-preview-fade-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.nail-preview-fade-enter-from,
+.nail-preview-fade-leave-to {
+  opacity: 0;
+}
+
+.nail-preview-toast-enter-active,
+.nail-preview-toast-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.nail-preview-toast-enter-from,
+.nail-preview-toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px);
 }
 
 @keyframes pulse {
